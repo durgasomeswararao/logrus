@@ -1,55 +1,38 @@
-// +build !windows,!nacl,!plan9
-
-package syslog
+package logrus_sourcefile
 
 import (
 	"fmt"
-	"log/syslog"
-	"os"
-
 	"github.com/sirupsen/logrus"
+	"runtime"
+	"strings"
 )
 
-// SyslogHook to send logs via syslog.
-type SyslogHook struct {
-	Writer        *syslog.Writer
-	SyslogNetwork string
-	SyslogRaddr   string
+type SourceFileHook struct {
+	LogLevel logrus.Level
 }
 
-// Creates a hook to be added to an instance of logger. This is called with
-// `hook, err := NewSyslogHook("udp", "localhost:514", syslog.LOG_DEBUG, "")`
-// `if err == nil { log.Hooks.Add(hook) }`
-func NewSyslogHook(network, raddr string, priority syslog.Priority, tag string) (*SyslogHook, error) {
-	w, err := syslog.Dial(network, raddr, priority, tag)
-	return &SyslogHook{w, network, raddr}, err
-}
-
-func (hook *SyslogHook) Fire(entry *logrus.Entry) error {
-	line, err := entry.String()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Unable to read entry, %v", err)
-		return err
+func (hook *SourceFileHook) Fire(entry *logrus.Entry) (_ error) {
+	for skip := 4; skip < 9; skip++ {
+		_, file, line, _ := runtime.Caller(skip)
+		split := strings.Split(file, "/")
+		if l := len(split); l > 1 {
+			pkg := split[l-2]
+			if pkg != "logrus" {
+				file = fmt.Sprintf("%s/%s:%d", split[l-2], split[l-1], line)
+				// set source_file field
+				entry.Data["source_file"] = file
+				return
+			}
+		}
 	}
 
-	switch entry.Level {
-	case logrus.PanicLevel:
-		return hook.Writer.Crit(line)
-	case logrus.FatalLevel:
-		return hook.Writer.Crit(line)
-	case logrus.ErrorLevel:
-		return hook.Writer.Err(line)
-	case logrus.WarnLevel:
-		return hook.Writer.Warning(line)
-	case logrus.InfoLevel:
-		return hook.Writer.Info(line)
-	case logrus.DebugLevel, logrus.TraceLevel:
-		return hook.Writer.Debug(line)
-	default:
-		return nil
-	}
+	return
 }
 
-func (hook *SyslogHook) Levels() []logrus.Level {
-	return logrus.AllLevels
+func (hook *SourceFileHook) Levels() []logrus.Level {
+	levels := make([]logrus.Level, hook.LogLevel+1)
+	for i, _ := range levels {
+		levels[i] = logrus.Level(i)
+	}
+	return levels
 }
